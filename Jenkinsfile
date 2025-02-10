@@ -4,7 +4,7 @@ pipeline {
     environment {
         EC2_HOST = "176.34.98.123"  // Your EC2 instance
         DEPLOY_DIR = "/home/ubuntu/deployments/${env.BRANCH_NAME}"  // Deployment path
-        TELEGRAM_BOT_TOKEN = credentials('telegram-token')  // Ensure Telegram token is in Jenkins credentials
+        TELEGRAM_BOT_TOKEN = credentials('TelegramToken')  // Ensure Telegram token is in Jenkins credentials (changed to correct ID)
         TELEGRAM_CHAT_ID = "-4689567738"  // Your Telegram chat ID (update this)
     }
 
@@ -52,7 +52,7 @@ pipeline {
 
                     def message = """
                     Hi, Jenkins job: *${JOB_NAME}* status is *${currentBuild.currentResult}*
-                    Env: *${env.GIT_BRANCH}*
+                    Env: *${env.BRANCH_NAME}*
                     Committed by: *${committer}*
                     Commit ID: *${git_commit}*
                     Commit Msg: *${commit_msg}*
@@ -72,7 +72,7 @@ pipeline {
             script {
                 sh """
                 curl -s -X POST https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage \\
-                -d chat_id=$TELEGRAM_CHAT_ID -d text="Jenkins job *${JOB_NAME}* failed on branch *${env.GIT_BRANCH}*" -d parse_mode=Markdown
+                -d chat_id=$TELEGRAM_CHAT_ID -d text="Jenkins job *${JOB_NAME}* failed on branch *${env.BRANCH_NAME}*" -d parse_mode=Markdown
                 """
             }
         }
