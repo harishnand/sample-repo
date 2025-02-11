@@ -1,28 +1,29 @@
 pipeline {
     agent any
-
     environment {
-        EC2_HOST = "176.34.98.123"  // Your EC2 instance
-        DEPLOY_DIR = "/home/ubuntu/deployments/${env.BRANCH_NAME}"  // Deployment path
-        TELEGRAM_BOT_TOKEN = credentials('TelegramToken')  // Ensure Telegram token is in Jenkins credentials (changed to correct ID)
-        TELEGRAM_CHAT_ID = "-4689567738"  // Your Telegram chat ID (update this)
+        TELEGRAM_BOT_TOKEN = credentials('telegram-token')
+        SSH_KEY = credentials('ec2-ssh-key')
+        DEPLOY_USER = "ubuntu"
+        DEPLOY_HOST = "176.34.98.123"
+        DEPLOY_PATH = "/home/ubuntu/deployments"
     }
-
+    
     stages {
         stage('Checkout') {
             steps {
                 script {
-                    echo "Checking out code from branch: ${env.BRANCH_NAME}"
-                    checkout scm
+                    BRANCH_NAME = env.BRANCH_NAME
+                    echo "Checking out code from branch: ${BRANCH_NAME}"
                 }
+                checkout scm
             }
         }
 
         stage('Build') {
             steps {
                 script {
-                    echo "Building project for branch: ${env.BRANCH_NAME}"
-                    sh "echo 'Build successful!'"
+                    echo "Building project for branch: ${BRANCH_NAME}"
+                    sh "echo Build successful!"
                 }
             }
         }
@@ -30,51 +31,45 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
+                    echo "Deploying to EC2 instance..."
+                    
+                    // Ensure the SSH key is available
+                    withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY_PATH')]) {
                         sh """
-                        echo "Deploying to EC2 instance..."
-                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@$EC2_HOST 'mkdir -p $DEPLOY_DIR'
-                        scp -i $SSH_KEY -o StrictHostKeyChecking=no app.py ubuntu@$EC2_HOST:$DEPLOY_DIR/
-                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@$EC2_HOST 'nohup python3 $DEPLOY_DIR/app.py > $DEPLOY_DIR/app.log 2>&1 &'
-                        echo "Deployment completed."
+                            chmod 400 ${SSH_KEY_PATH}
+                            ssh -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no ${DEPLOY_USER}@${DEPLOY_HOST} "mkdir -p ${DEPLOY_PATH}/${BRANCH_NAME}"
+                            scp -i ${SSH_KEY_PATH} -o StrictHostKeyChecking=no -r * ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}/${BRANCH_NAME}
                         """
                     }
-                }
-            }
-        }
-
-        stage('Notify Telegram') {
-            steps {
-                script {
-                    def git_commit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                    def commit_msg = sh(script: "git log -1 --pretty=%B", returnStdout: true).trim()
-                    def committer = sh(script: "git log -1 --pretty=format:'%an'", returnStdout: true).trim()
-
-                    def message = """
-                    Hi, Jenkins job: *${JOB_NAME}* status is *${currentBuild.currentResult}*
-                    Env: *${env.BRANCH_NAME}*
-                    Committed by: *${committer}*
-                    Commit ID: *${git_commit}*
-                    Commit Msg: *${commit_msg}*
-                    """
-
-                    sh """
-                    curl -s -X POST https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage \\
-                    -d chat_id=$TELEGRAM_CHAT_ID -d text="$message" -d parse_mode=Markdown
-                    """
                 }
             }
         }
     }
 
     post {
-        failure {
+        success {
             script {
+                def commitDetails = sh(script: "git log -1 --pretty=format:'%H%n%an%n%s'", returnStdout: true).trim().split('\n')
+                def commitId = commitDetails[0].take(8)
+                def committer = commitDetails[1]
+                def commitMessage = commitDetails[2]
+                
                 sh """
-                curl -s -X POST https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage \\
-                -d chat_id=$TELEGRAM_CHAT_ID -d text="Jenkins job *${JOB_NAME}* failed on branch *${env.BRANCH_NAME}*" -d parse_mode=Markdown
+                    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \\
+                    -d chat_id="-4689567738" \\
+                    -d text="✅ Hi, Jenkins job: *${env.JOB_NAME}* status is *SUCCESS*%0A🌍 env: *origin/${BRANCH_NAME}*%0A👤 Committed by: *${committer}*%0A🔗 commit-id: *${commitId}*%0A📝 commit msg: *${commitMessage}*" \\
+                    -d parse_mode="Markdown"
                 """
             }
+        }
+
+        failure {
+            sh """
+                curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \\
+                -d chat_id="-4689567738" \\
+                -d text="❌ Jenkins job *${env.JOB_NAME}* failed on branch *${BRANCH_NAME}*" \\
+                -d parse_mode="Markdown"
+            """
         }
     }
 }
