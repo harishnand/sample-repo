@@ -1,7 +1,7 @@
 pipeline {
     agent any
     environment {
-        TELEGRAM_BOT_TOKEN = credentials('telegram-token')
+        TELEGRAM_BOT_TOKEN = credentials('Telegram-Token')
         SSH_KEY = credentials('ec2-ssh-key')
         DEPLOY_USER = "ubuntu"
         DEPLOY_HOST = "176.34.98.123"
